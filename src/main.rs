@@ -725,6 +725,10 @@ struct App {
     flash: f32,     // full-screen flash intensity (juice)
     flash_c: Color, // flash color
     slowmo: f32,    // brief slow-motion timer (real seconds)
+    tap_x: f32,     // last tap feedback marker
+    tap_y: f32,
+    tap_t: f32,
+    tap_ok: bool, // true = hit something, false = missed
 }
 
 const GLYPHS: &[char] = &[
@@ -763,7 +767,19 @@ impl App {
             flash: 0.0,
             flash_c: WHITE,
             slowmo: 0.0,
+            tap_x: 0.0,
+            tap_y: 0.0,
+            tap_t: 0.0,
+            tap_ok: false,
         }
+    }
+
+    // Show a quick marker at a tap: green = it hit something, red = it missed.
+    fn tap_fb(&mut self, x: f32, y: f32, ok: bool) {
+        self.tap_x = x;
+        self.tap_y = y;
+        self.tap_t = 0.45;
+        self.tap_ok = ok;
     }
 
     fn set_flash(&mut self, c: Color, amt: f32) {
@@ -876,7 +892,7 @@ impl App {
         if self.compact() { 50.0 } else { 44.0 }
     }
     fn hud_bottom(&self) -> f32 {
-        if self.compact() { 122.0 } else { 64.0 }
+        if self.compact() { 128.0 } else { 64.0 }
     }
 
     fn layout(&self) -> Layout {
@@ -2297,13 +2313,23 @@ impl App {
         best
     }
 
-    // Tower index sitting under a screen point, if any.
+    // Nearest tower to a screen point within a forgiving radius (fat-finger friendly).
     fn tower_at(&self, mx: f32, my: f32) -> Option<usize> {
         let l = self.layout();
         let g = self.game.as_ref()?;
-        let c = ((mx - l.ox) / l.tile).floor() as i32;
-        let r = ((my - l.oy) / l.tile).floor() as i32;
-        g.towers.iter().position(|t| t.col == c && t.row == r)
+        let thresh = l.tile * 0.72;
+        let mut best = None;
+        let mut bd = thresh;
+        for (i, t) in g.towers.iter().enumerate() {
+            let px = l.ox + (t.col as f32 + 0.5) * l.tile;
+            let py = l.oy + (t.row as f32 + 0.5) * l.tile;
+            let d = ((px - mx).powi(2) + (py - my).powi(2)).sqrt();
+            if d < bd {
+                bd = d;
+                best = Some(i);
+            }
+        }
+        best
     }
 
     // Drop a dragged tower onto the node under the pointer (snaps; rejects invalid spots).
@@ -2487,6 +2513,7 @@ impl App {
         let c = ((mx - l.ox) / l.tile).floor() as i32;
         let r = ((my - l.oy) / l.tile).floor() as i32;
         if c < 0 || r < 0 || c >= cols || r >= rows {
+            self.tap_fb(mx, my, false);
             return;
         }
         // relocating a tower? (MOVE chosen from the radial)
@@ -2515,8 +2542,10 @@ impl App {
                 self.sparks(ox, oy, col(0x18, 0xe0, 0xff), 6);
                 self.sparks(nx, ny, col(0x18, 0xe0, 0xff), 8);
                 self.play_sfx("place");
+                self.tap_fb(nx, ny, true);
             } else {
                 self.play_sfx("sell");
+                self.tap_fb(mx, my, false);
             }
             self.moving = None;
             if let Some(g) = self.game.as_mut() {
@@ -2524,14 +2553,15 @@ impl App {
             }
             return;
         }
-        // existing tower?
-        let twi = {
-            let g = self.game.as_ref().unwrap();
-            g.towers.iter().position(|t| t.col == c && t.row == r)
-        };
-        if let Some(ti) = twi {
+        // existing tower? (forgiving radius for big fingers)
+        if let Some(ti) = self.tower_at(mx, my) {
             self.game.as_mut().unwrap().sel = Some(ti);
             self.open_tower_radial(ti);
+            let (px, py) = self.cc(
+                self.game.as_ref().unwrap().towers[ti].col as f32,
+                self.game.as_ref().unwrap().towers[ti].row as f32,
+            );
+            self.tap_fb(px, py, true);
             return;
         }
         // path cell? -> collect a FORK orb if one is here, else purge the lane
@@ -2540,10 +2570,11 @@ impl App {
             let hit_orb = {
                 let g = self.game.as_ref().unwrap();
                 let tile = self.layout().tile;
+                let reach = if self.compact() { tile * 1.3 } else { tile * 0.95 };
                 let mut found = None;
                 for (oi, o) in g.orbs.iter().enumerate() {
                     let p = self.pos_at(&g.metrics[o.path], o.dist);
-                    if ((p.0 - mx).powi(2) + (p.1 - my).powi(2)).sqrt() < tile * 0.95 {
+                    if ((p.0 - mx).powi(2) + (p.1 - my).powi(2)).sqrt() < reach {
                         found = Some(oi);
                         break;
                     }
@@ -2555,21 +2586,24 @@ impl App {
             } else if let Some((pi, along)) = self.nearest_lane(mx, my) {
                 self.lane_pulse(pi, along);
             }
+            self.tap_fb(mx, my, true);
             return;
         }
         if (c, r) == (core.0 as i32, core.1 as i32) {
+            self.tap_fb(mx, my, false);
             return;
         }
         self.open_build_radial(c, r);
+        self.tap_fb(mx, my, true);
     }
 
     // Radial option circle radius (bigger touch targets on mobile).
     fn rad_r(&self) -> f32 {
-        if self.compact() { 40.0 } else { 31.0 }
+        if self.compact() { 46.0 } else { 31.0 }
     }
     fn radial_center(&self, c: i32, r: i32) -> (f32, f32, f32) {
         let p = self.cc(c as f32, r as f32);
-        let rr = if self.compact() { 98.0 } else { 80.0 };
+        let rr = if self.compact() { 110.0 } else { 80.0 };
         let w = screen_width();
         let h = screen_height();
         let cx = p.0.clamp(rr + 36.0, w - rr - 36.0);
@@ -3069,9 +3103,9 @@ impl App {
         let chrome = self.screen != Screen::Play || self.paused;
         if chrome {
             let compact = self.compact();
-            let bwid = if compact { 54.0 } else { 40.0 };
-            let bhei = if compact { 42.0 } else { 34.0 };
-            let fsz = if compact { 15.0 } else { 13.0 };
+            let bwid = if compact { 58.0 } else { 40.0 };
+            let bhei = if compact { 46.0 } else { 34.0 };
+            let fsz = if compact { 16.0 } else { 13.0 };
             let step = bwid + 8.0;
             let mut bx = w - 12.0 - bwid;
             if self.button(taps, bx, 10.0, bwid, bhei, "CRT", fsz, panel, if self.crt { green } else { col(0x3f, 0x7a, 0x5a) }) {
@@ -3103,8 +3137,9 @@ impl App {
                 let tag = self.tr("INFORMATION WANTS TO BE FREE", "LA INFORMACION QUIERE SER LIBRE");
                 let dt2 = measure_text(&tag, None, 14, 1.0);
                 draw_text(&tag, w / 2.0 - dt2.width / 2.0, h * 0.48, 14.0, mint);
-                let bw = 240.0;
-                if self.button(taps, w / 2.0 - bw / 2.0, h * 0.56, bw, 56.0, &format!("> {}", self.tr("JACK IN", "CONECTAR")), 18.0, col(0x1f, 0x9c, 0x4d), col(0x03, 0x10, 0x07)) {
+                let bw = if self.compact() { (w - 48.0).min(320.0) } else { 240.0 };
+                let bh = if self.compact() { 64.0 } else { 56.0 };
+                if self.button(taps, w / 2.0 - bw / 2.0, h * 0.56, bw, bh, &format!("> {}", self.tr("JACK IN", "CONECTAR")), 18.0, col(0x1f, 0x9c, 0x4d), col(0x03, 0x10, 0x07)) {
                     self.screen = Screen::Select;
                 }
                 let note = self.tr("Tap a node to deploy hacker tools. Touch or mouse.", "Toca un nodo para desplegar herramientas. Tactil o raton.");
@@ -3116,7 +3151,8 @@ impl App {
                 draw_text(by, w / 2.0 - db.width / 2.0, h * 0.92, 12.0, col(0x2a, 0x55, 0x40));
             }
             Screen::Select => {
-                if self.button(taps, 16.0, 14.0, 90.0, 36.0, &format!("< {}", self.tr("BACK", "ATRAS")), 13.0, panel, mint) {
+                let (bkw, bkh) = if self.compact() { (110.0, 46.0) } else { (90.0, 36.0) };
+                if self.button(taps, 16.0, 14.0, bkw, bkh, &format!("< {}", self.tr("BACK", "ATRAS")), 13.0, panel, mint) {
                     self.screen = Screen::Menu;
                 }
                 let title = self.tr("SELECT NODE", "ELIGE NODO");
@@ -3250,9 +3286,9 @@ impl App {
         }
 
         // top-right play toggles: fast + pause (bigger touch targets on mobile)
-        let pf_w = if compact { 52.0 } else { 46.0 };
-        let pf_h = if compact { 42.0 } else { 38.0 };
-        let pf_fs = if compact { 18.0 } else { 14.0 };
+        let pf_w = if compact { 58.0 } else { 46.0 };
+        let pf_h = if compact { 46.0 } else { 38.0 };
+        let pf_fs = if compact { 20.0 } else { 14.0 };
         let flabel = if self.fast { "2x" } else { "1x" };
         if self.button(taps, w - 12.0 - pf_w, 8.0, pf_w, pf_h, "II", pf_fs, panel, mint) {
             self.paused = !self.paused;
@@ -3355,7 +3391,7 @@ impl App {
         };
         let disabled = wave_on && spawn_left > 0;
         let (bx, by, bw, bh, bfs) = if compact {
-            (8.0, h - 58.0, w - 16.0, 50.0, 17.0)
+            (8.0, h - 64.0, w - 16.0, 56.0, 18.0)
         } else {
             (w / 2.0 - 100.0, h - 58.0, 200.0, 50.0, 14.0)
         };
@@ -3663,6 +3699,20 @@ async fn main() {
             for &(tx, ty) in &taps {
                 app.handle_tap(tx, ty);
             }
+        }
+
+        // tap feedback marker: green ring when a tap hit something, red X on a miss
+        if app.tap_t > 0.0 {
+            let a = (app.tap_t / 0.45).clamp(0.0, 1.0);
+            let r = 16.0 + (1.0 - a) * 26.0;
+            let c = if app.tap_ok { col(0x39, 0xff, 0x14) } else { col(0xff, 0x33, 0x33) };
+            draw_circle_lines(app.tap_x, app.tap_y, r, 3.0, with_a(c, a));
+            if !app.tap_ok {
+                let s = r * 0.5;
+                draw_line(app.tap_x - s, app.tap_y - s, app.tap_x + s, app.tap_y + s, 3.0, with_a(c, a));
+                draw_line(app.tap_x - s, app.tap_y + s, app.tap_x + s, app.tap_y - s, 3.0, with_a(c, a));
+            }
+            app.tap_t -= dt;
         }
 
         next_frame().await;
