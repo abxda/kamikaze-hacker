@@ -1,0 +1,7 @@
+# macroquad/miniquad on wasm imports a set of host functions from the JS glue
+# (init_webgl, now, run_animation_loop, gl*, canvas_*, etc.). Since Rust 1.82 the
+# wasm linker errors on these undefined symbols by default instead of emitting
+# them as imports. --allow-undefined tells rust-lld to leave them as imports,
+# which mq_js_bundle.js fills in at instantiation time.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--allow-undefined"]

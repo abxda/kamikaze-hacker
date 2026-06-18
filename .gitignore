@@ -1,0 +1,3 @@
+# Rust build artifacts (the prebuilt kamikaze.wasm at the repo root is kept on
+# purpose so GitHub Pages can serve the game with no build step).
+/target

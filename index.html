@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#02040a">
+  <meta name="author" content="Dr. Coronado x Claude">
+  <meta name="description" content="Kamikaze Hacker - a self-contained cyberpunk tower-defense / crowd-runner built in Rust + macroquad, compiled to WebAssembly.">
+  <title>Kamikaze Hacker</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #02040a;
+      overscroll-behavior: none; touch-action: none;
+    }
+    /* macroquad renders into the canvas with this exact id */
+    #glcanvas {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #39ff14; font-family: ui-monospace, monospace; letter-spacing: 2px; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">BOOTING //KAMIKAZE_HACKER ...</div>
+  <canvas id="glcanvas" tabindex="0"></canvas>
+
+  <!-- Audio unlock: capture every AudioContext macroquad creates and resume it on the
+       first user gesture in CAPTURE phase on window (fires before the canvas can swallow
+       the event). Must run BEFORE the bundle loads. -->
+  <script>
+    (function () {
+      var OrigAC = window.AudioContext || window.webkitAudioContext;
+      if (!OrigAC) return;
+      var ctxs = [];
+      function Patched() {
+        var c = arguments.length
+          ? new (Function.prototype.bind.apply(OrigAC, [null].concat([].slice.call(arguments))))()
+          : new OrigAC();
+        ctxs.push(c);
+        return c;
+      }
+      Patched.prototype = OrigAC.prototype;
+      window.AudioContext = Patched;
+      if (window.webkitAudioContext) window.webkitAudioContext = Patched;
+      function resumeAll() {
+        ctxs.forEach(function (c) { if (c && c.state === "suspended" && c.resume) c.resume(); });
+      }
+      ["pointerdown", "mousedown", "touchstart", "touchend", "keydown"].forEach(function (ev) {
+        window.addEventListener(ev, resumeAll, true);
+      });
+    })();
+  </script>
+
+  <!-- macroquad / miniquad JS glue (MIT, bundled locally - no CDN, no network at runtime) -->
+  <script src="mq_js_bundle.js"></script>
+  <script>
+    // Hide the loading text once the wasm starts drawing.
+    window.addEventListener("DOMContentLoaded", () => {
+      const el = document.getElementById("loading");
+      // miniquad calls into the canvas; give it a moment then hide the splash.
+      setTimeout(() => { if (el) el.style.display = "none"; }, 1200);
+    });
+    load("kamikaze.wasm");
+  </script>
+</body>
+</html>

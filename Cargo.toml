@@ -1,0 +1,24 @@
+[package]
+name = "kamikaze-hacker"
+version = "1.0.0"
+edition = "2021"
+description = "Kamikaze Hacker - cyberpunk tower-defense / crowd-runner hybrid, Rust + macroquad -> WebAssembly"
+authors = ["Dr. Coronado", "Claude"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/abxda/kamikaze-hacker"
+
+# Single binary -> produces target/wasm32-unknown-unknown/release/kamikaze.wasm
+[[bin]]
+name = "kamikaze"
+path = "src/main.rs"
+
+[dependencies]
+# macroquad: MIT/Apache-2.0, self-contained game engine, compiles to wasm32 with no JS bindgen.
+# NOTE: macroquad 0.4 has `default = []` (no default features) - audio is opt-in!
+macroquad = { version = "0.4", features = ["audio"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
