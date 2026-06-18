@@ -67,6 +67,18 @@
       // miniquad calls into the canvas; give it a moment then hide the splash.
       setTimeout(() => { if (el) el.style.display = "none"; }, 1200);
     });
+
+    // IMPORTANT (mobile fix): macroquad sizes the canvas to the Conf window size
+    // (1100x620) and does NOT auto-fit the viewport. On phones (narrow + tall +
+    // devicePixelRatio 2-3) that leaves touch coordinates far outside the area the
+    // game thinks it has, so taps land in dead space. The bundle's window.onresize
+    // handler resizes the backing store to clientWidth*DPR and notifies the wasm,
+    // so we just have to kick it: once the wasm is ready, on rotation, and on resize.
+    function fitCanvas() { window.dispatchEvent(new Event("resize")); }
+    [200, 600, 1200, 2000, 3000].forEach((ms) => setTimeout(fitCanvas, ms));
+    window.addEventListener("orientationchange", () => setTimeout(fitCanvas, 250));
+    window.addEventListener("load", fitCanvas);
+
     load("kamikaze.wasm");
   </script>
 </body>
