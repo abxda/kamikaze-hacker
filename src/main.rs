@@ -867,6 +867,18 @@ impl App {
         }
     }
 
+    // Narrow screens (phones in portrait) get the bigger-touch "mobile" UI.
+    fn compact(&self) -> bool {
+        screen_width() < 640.0
+    }
+    // Vertical space reserved for the HUD: top bar + bottom panel.
+    fn hud_top(&self) -> f32 {
+        if self.compact() { 50.0 } else { 44.0 }
+    }
+    fn hud_bottom(&self) -> f32 {
+        if self.compact() { 122.0 } else { 64.0 }
+    }
+
     fn layout(&self) -> Layout {
         let w = screen_width();
         let h = screen_height();
@@ -875,9 +887,11 @@ impl App {
             None => (20.0, 11.0),
         };
         let pad = w.min(h) * 0.03;
-        let tile = ((w - pad * 2.0) / cols).min((h - pad * 2.0 - 96.0) / rows);
+        let top = self.hud_top();
+        let bot = self.hud_bottom();
+        let tile = ((w - pad * 2.0) / cols).min((h - pad * 2.0 - top - bot) / rows);
         let ox = (w - cols * tile) / 2.0;
-        let oy = (h - 96.0 - rows * tile) / 2.0 + 36.0;
+        let oy = top + (h - top - bot - rows * tile) / 2.0;
         Layout { tile, ox, oy }
     }
     fn cc(&self, c: f32, r: f32) -> (f32, f32) {
@@ -2403,19 +2417,21 @@ impl App {
         }
         // radial open?
         if self.radial.is_some() {
+            let hit_r = self.rad_r() + 2.0;
+            let cancel_r = self.rad_r() * 0.78;
             let action = {
                 let rad = self.radial.as_ref().unwrap();
                 let mut chosen = RadAction::Cancel;
                 let mut found = false;
                 for o in &rad.opts {
-                    if ((o.x - mx).powi(2) + (o.y - my).powi(2)).sqrt() <= 33.0 {
+                    if ((o.x - mx).powi(2) + (o.y - my).powi(2)).sqrt() <= hit_r {
                         chosen = o.action;
                         found = true;
                         break;
                     }
                 }
                 // center cancel
-                if ((rad.cx - mx).powi(2) + (rad.cy - my).powi(2)).sqrt() <= 26.0 {
+                if ((rad.cx - mx).powi(2) + (rad.cy - my).powi(2)).sqrt() <= cancel_r {
                     chosen = RadAction::Cancel;
                     found = true;
                 }
@@ -2547,13 +2563,17 @@ impl App {
         self.open_build_radial(c, r);
     }
 
+    // Radial option circle radius (bigger touch targets on mobile).
+    fn rad_r(&self) -> f32 {
+        if self.compact() { 40.0 } else { 31.0 }
+    }
     fn radial_center(&self, c: i32, r: i32) -> (f32, f32, f32) {
         let p = self.cc(c as f32, r as f32);
-        let rr = 80.0;
+        let rr = if self.compact() { 98.0 } else { 80.0 };
         let w = screen_width();
         let h = screen_height();
-        let cx = p.0.clamp(rr + 30.0, w - rr - 30.0);
-        let cy = p.1.clamp(rr + 56.0, h - rr - 90.0);
+        let cx = p.0.clamp(rr + 36.0, w - rr - 36.0);
+        let cy = p.1.clamp(rr + 60.0, h - rr - 96.0);
         (cx, cy, rr)
     }
     fn open_build_radial(&mut self, c: i32, r: i32) {
@@ -3048,19 +3068,24 @@ impl App {
         // global toggles top-right (shown when not playing or paused)
         let chrome = self.screen != Screen::Play || self.paused;
         if chrome {
-            let mut bx = w - 12.0 - 40.0;
-            if self.button(taps, bx, 10.0, 40.0, 34.0, "CRT", 13.0, panel, if self.crt { green } else { col(0x3f, 0x7a, 0x5a) }) {
+            let compact = self.compact();
+            let bwid = if compact { 54.0 } else { 40.0 };
+            let bhei = if compact { 42.0 } else { 34.0 };
+            let fsz = if compact { 15.0 } else { 13.0 };
+            let step = bwid + 8.0;
+            let mut bx = w - 12.0 - bwid;
+            if self.button(taps, bx, 10.0, bwid, bhei, "CRT", fsz, panel, if self.crt { green } else { col(0x3f, 0x7a, 0x5a) }) {
                 self.crt = !self.crt;
             }
-            bx -= 46.0;
+            bx -= step;
             let lang = if self.lang_es { "ES" } else { "EN" };
-            if self.button(taps, bx, 10.0, 40.0, 34.0, lang, 13.0, panel, mint) {
+            if self.button(taps, bx, 10.0, bwid, bhei, lang, fsz, panel, mint) {
                 self.lang_es = !self.lang_es;
             }
-            bx -= 46.0;
+            bx -= step;
             let snd_label = if self.muted { "OFF" } else { "SND" };
             let snd_col = if self.muted { col(0x3f, 0x7a, 0x5a) } else { green };
-            if self.button(taps, bx, 10.0, 40.0, 34.0, snd_label, 13.0, panel, snd_col) {
+            if self.button(taps, bx, 10.0, bwid, bhei, snd_label, fsz, panel, snd_col) {
                 self.toggle_mute();
             }
         }
@@ -3201,11 +3226,17 @@ impl App {
         let combo_t = g.combo_t;
         let name = if self.lang_es { self.maps[g.idx].name_es } else { self.maps[g.idx].name_en };
 
-        // top bar
-        draw_rectangle(10.0, 8.0, 240.0, 34.0, panel);
-        draw_rectangle_lines(10.0, 8.0, 240.0, 34.0, 1.0, border);
-        draw_text(name, 18.0, 30.0, 14.0, green);
-        draw_text(&format!("WAVE {}/{}", wave, waves), 150.0, 30.0, 12.0, col(0x3f, 0x7a, 0x5a));
+        let compact = self.compact();
+
+        // top bar (map name + wave counter)
+        let tb_w = if compact { (w - 150.0).clamp(140.0, 240.0) } else { 240.0 };
+        draw_rectangle(10.0, 8.0, tb_w, 34.0, panel);
+        draw_rectangle_lines(10.0, 8.0, tb_w, 34.0, 1.0, border);
+        let nm_fs = if compact { 12.0 } else { 14.0 };
+        draw_text(name, 18.0, 29.0, nm_fs, green);
+        let wv = format!("W{}/{}", wave, waves);
+        let dwv = measure_text(&wv, None, 12, 1.0);
+        draw_text(&wv, 10.0 + tb_w - dwv.width - 8.0, 29.0, 12.0, col(0x3f, 0x7a, 0x5a));
 
         // kill-combo banner (top center, pulses and recolors as it climbs)
         if combo >= 3 {
@@ -3215,59 +3246,98 @@ impl App {
             let hue = hsv(self.dim_phase * 2.0 + combo as f32 * 0.03, 0.85, 1.0);
             let d = measure_text(&txt, None, fs as u16, 1.0);
             let a = (combo_t / 2.2).clamp(0.35, 1.0);
-            draw_text(&txt, w / 2.0 - d.width / 2.0, 46.0, fs, with_a(hue, a));
+            draw_text(&txt, w / 2.0 - d.width / 2.0, if compact { 44.0 } else { 46.0 }, fs, with_a(hue, a));
         }
 
-        // top-right play toggles: fast + pause
+        // top-right play toggles: fast + pause (bigger touch targets on mobile)
+        let pf_w = if compact { 52.0 } else { 46.0 };
+        let pf_h = if compact { 42.0 } else { 38.0 };
+        let pf_fs = if compact { 18.0 } else { 14.0 };
         let flabel = if self.fast { "2x" } else { "1x" };
-        if self.button(taps, w - 12.0 - 46.0, 8.0, 46.0, 38.0, "II", 14.0, panel, mint) {
+        if self.button(taps, w - 12.0 - pf_w, 8.0, pf_w, pf_h, "II", pf_fs, panel, mint) {
             self.paused = !self.paused;
         }
-        if self.button(taps, w - 12.0 - 46.0 - 54.0, 8.0, 46.0, 38.0, flabel, 14.0, panel, if self.fast { green } else { mint }) {
+        if self.button(taps, w - 12.0 - pf_w * 2.0 - 8.0, 8.0, pf_w, pf_h, flabel, pf_fs, panel, if self.fast { green } else { mint }) {
             self.fast = !self.fast;
         }
 
         // boss bar
         if boss_on {
-            let bw = (w * 0.5).min(520.0);
+            let bw = (w * 0.6).min(520.0);
             let bx = w / 2.0 - bw / 2.0;
-            draw_text("RANSOMWARE.EXE", bx, 60.0, 14.0, col(0xff, 0x5b, 0x4d));
-            draw_rectangle(bx, 66.0, bw, 12.0, col(0x1a, 0x07, 0x07));
-            draw_rectangle(bx, 66.0, bw * boss_pct, 12.0, col(0xff, 0x3b, 0x30));
-            draw_rectangle_lines(bx, 66.0, bw, 12.0, 1.0, col(0xff, 0x3b, 0x30));
+            let byo = if compact { 78.0 } else { 60.0 };
+            draw_text("RANSOMWARE.EXE", bx, byo, 14.0, col(0xff, 0x5b, 0x4d));
+            draw_rectangle(bx, byo + 6.0, bw, 12.0, col(0x1a, 0x07, 0x07));
+            draw_rectangle(bx, byo + 6.0, bw * boss_pct, 12.0, col(0xff, 0x3b, 0x30));
+            draw_rectangle_lines(bx, byo + 6.0, bw, 12.0, 1.0, col(0xff, 0x3b, 0x30));
         }
 
-        // bottom HUD
-        draw_rectangle(0.0, h - 64.0, w, 64.0, cola(2, 8, 5, 0.92));
-        // bytes
-        draw_rectangle(10.0, h - 56.0, 96.0, 46.0, cola(4, 16, 10, 0.8));
-        draw_rectangle_lines(10.0, h - 56.0, 96.0, 46.0, 1.0, border);
-        draw_text("BYTES", 18.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
-        draw_text(&format!("{}", bytes), 18.0, h - 18.0, 16.0, col(0xff, 0xd8, 0x4d));
-        // lives
-        draw_rectangle(114.0, h - 56.0, 90.0, 46.0, cola(4, 16, 10, 0.8));
-        draw_rectangle_lines(114.0, h - 56.0, 90.0, 46.0, 1.0, border);
-        draw_text(&self.tr("CORE", "NUCLEO"), 122.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
-        draw_text(&format!("{}", lives), 122.0, h - 18.0, 16.0, col(0x18, 0xe0, 0xff));
-        // drones
-        draw_rectangle(212.0, h - 56.0, 96.0, 46.0, cola(4, 16, 10, 0.8));
-        draw_rectangle_lines(212.0, h - 56.0, 96.0, 46.0, 1.0, border);
-        draw_text(&self.tr("DRONES", "DRONES"), 220.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
-        draw_text(&format!("{}", sats), 220.0, h - 18.0, 16.0, col(0x9b, 0xf0, 0xff));
-        // threat
-        draw_text(&self.tr("THREAT", "AMENAZA"), w - 90.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
-        draw_text(&format!("{}", enemies), w - 90.0, h - 18.0, 16.0, col(0xff, 0x5b, 0x4d));
-        // ROOT energy (lane purge) - left of the THREAT readout
-        let rbx = w - 232.0;
-        draw_rectangle(rbx, h - 56.0, 120.0, 46.0, cola(4, 16, 10, 0.8));
-        draw_rectangle_lines(rbx, h - 56.0, 120.0, 46.0, 1.0, border);
-        draw_text("ROOT", rbx + 8.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+        // ---- bottom HUD ----
+        let l_core = self.tr("CORE", "NUCLEO");
+        let l_threat = self.tr("THREAT", "AMENAZA");
         let frac = (root / root_max).clamp(0.0, 1.0);
-        draw_rectangle(rbx + 8.0, h - 26.0, 104.0, 8.0, col(0x0a, 0x1f, 0x12));
         let rcol = if frac >= 0.28 { col(0x2b, 0xff, 0x88) } else { col(0xff, 0x95, 0x00) };
-        draw_rectangle(rbx + 8.0, h - 26.0, 104.0 * frac, 8.0, rcol);
+        if compact {
+            // mobile: a row of 5 evenly-spaced stat cells, big wave button below
+            let area = self.hud_bottom();
+            let y0 = h - area;
+            draw_rectangle(0.0, y0, w, area, cola(2, 8, 5, 0.95));
+            let m = 6.0;
+            let gap = 5.0;
+            let n = 5.0;
+            let cw = (w - 2.0 * m - (n - 1.0) * gap) / n;
+            let ch = 44.0;
+            let cy = y0 + 6.0;
+            let cell = |x: f32, label: &str, val: &str, vc: Color| {
+                draw_rectangle(x, cy, cw, ch, cola(4, 16, 10, 0.85));
+                draw_rectangle_lines(x, cy, cw, ch, 1.0, border);
+                let dl = measure_text(label, None, 10, 1.0);
+                draw_text(label, x + (cw - dl.width) / 2.0, cy + 15.0, 10.0, col(0x3f, 0x7a, 0x5a));
+                let dv = measure_text(val, None, 18, 1.0);
+                draw_text(val, x + (cw - dv.width) / 2.0, cy + 36.0, 18.0, vc);
+            };
+            let mut x = m;
+            cell(x, "BYTES", &format!("{}", bytes), col(0xff, 0xd8, 0x4d));
+            x += cw + gap;
+            cell(x, &l_core, &format!("{}", lives), col(0x18, 0xe0, 0xff));
+            x += cw + gap;
+            cell(x, "DRONES", &format!("{}", sats), col(0x9b, 0xf0, 0xff));
+            x += cw + gap;
+            // ROOT cell with a bar instead of a number
+            draw_rectangle(x, cy, cw, ch, cola(4, 16, 10, 0.85));
+            draw_rectangle_lines(x, cy, cw, ch, 1.0, border);
+            let dl = measure_text("ROOT", None, 10, 1.0);
+            draw_text("ROOT", x + (cw - dl.width) / 2.0, cy + 15.0, 10.0, col(0x3f, 0x7a, 0x5a));
+            draw_rectangle(x + 6.0, cy + 25.0, cw - 12.0, 9.0, col(0x0a, 0x1f, 0x12));
+            draw_rectangle(x + 6.0, cy + 25.0, (cw - 12.0) * frac, 9.0, rcol);
+            x += cw + gap;
+            cell(x, &l_threat, &format!("{}", enemies), col(0xff, 0x5b, 0x4d));
+        } else {
+            // desktop: original layout
+            draw_rectangle(0.0, h - 64.0, w, 64.0, cola(2, 8, 5, 0.92));
+            draw_rectangle(10.0, h - 56.0, 96.0, 46.0, cola(4, 16, 10, 0.8));
+            draw_rectangle_lines(10.0, h - 56.0, 96.0, 46.0, 1.0, border);
+            draw_text("BYTES", 18.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+            draw_text(&format!("{}", bytes), 18.0, h - 18.0, 16.0, col(0xff, 0xd8, 0x4d));
+            draw_rectangle(114.0, h - 56.0, 90.0, 46.0, cola(4, 16, 10, 0.8));
+            draw_rectangle_lines(114.0, h - 56.0, 90.0, 46.0, 1.0, border);
+            draw_text(&l_core, 122.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+            draw_text(&format!("{}", lives), 122.0, h - 18.0, 16.0, col(0x18, 0xe0, 0xff));
+            draw_rectangle(212.0, h - 56.0, 96.0, 46.0, cola(4, 16, 10, 0.8));
+            draw_rectangle_lines(212.0, h - 56.0, 96.0, 46.0, 1.0, border);
+            draw_text("DRONES", 220.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+            draw_text(&format!("{}", sats), 220.0, h - 18.0, 16.0, col(0x9b, 0xf0, 0xff));
+            draw_text(&l_threat, w - 90.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+            draw_text(&format!("{}", enemies), w - 90.0, h - 18.0, 16.0, col(0xff, 0x5b, 0x4d));
+            let rbx = w - 232.0;
+            draw_rectangle(rbx, h - 56.0, 120.0, 46.0, cola(4, 16, 10, 0.8));
+            draw_rectangle_lines(rbx, h - 56.0, 120.0, 46.0, 1.0, border);
+            draw_text("ROOT", rbx + 8.0, h - 38.0, 11.0, col(0x3f, 0x7a, 0x5a));
+            draw_rectangle(rbx + 8.0, h - 26.0, 104.0, 8.0, col(0x0a, 0x1f, 0x12));
+            draw_rectangle(rbx + 8.0, h - 26.0, 104.0 * frac, 8.0, rcol);
+        }
 
-        // start wave button (center) — with an auto-launch countdown bar
+        // start-wave button — with an auto-launch countdown bar
         let counting = !wave_on && wave < waves;
         let base = if wave > 0 {
             if wave_on && enemies > 0 && spawn_left == 0 {
@@ -3284,19 +3354,19 @@ impl App {
             base
         };
         let disabled = wave_on && spawn_left > 0;
-        let bw = 200.0;
-        let bx = w / 2.0 - bw / 2.0;
-        let by = h - 58.0;
-        let bh = 50.0;
+        let (bx, by, bw, bh, bfs) = if compact {
+            (8.0, h - 58.0, w - 16.0, 50.0, 17.0)
+        } else {
+            (w / 2.0 - 100.0, h - 58.0, 200.0, 50.0, 14.0)
+        };
         let fill = if disabled { cola(6, 22, 13, 0.8) } else { col(0x1f, 0x9c, 0x4d) };
         let tc = if disabled { col(0x3f, 0x7a, 0x5a) } else { col(0x03, 0x10, 0x07) };
-        let clicked = self.button(taps, bx, by, bw, bh, &label, 14.0, fill, tc);
-        // countdown progress: fills left->right toward the auto-launch
+        let clicked = self.button(taps, bx, by, bw, bh, &label, bfs, fill, tc);
         if counting && next_total > 0.0 {
-            let frac = (1.0 - next_timer / next_total).clamp(0.0, 1.0);
-            draw_rectangle(bx, by, bw * frac, bh, cola(57, 255, 20, 0.16));
+            let cf = (1.0 - next_timer / next_total).clamp(0.0, 1.0);
+            draw_rectangle(bx, by, bw * cf, bh, cola(57, 255, 20, 0.16));
             draw_rectangle(bx, by + bh - 3.0, bw, 3.0, cola(10, 40, 22, 0.9));
-            draw_rectangle(bx, by + bh - 3.0, bw * frac, 3.0, col(0x39, 0xff, 0x14));
+            draw_rectangle(bx, by + bh - 3.0, bw * cf, 3.0, col(0x39, 0xff, 0x14));
         }
         if clicked && !disabled {
             self.start_wave();
@@ -3305,23 +3375,27 @@ impl App {
 
     fn draw_radial(&self) {
         let rad = self.radial.as_ref().unwrap();
+        let r = self.rad_r();
+        let cr = r * 0.78;
+        let icon_fs = if self.compact() { 24.0 } else { 20.0 };
         // dim background
         draw_rectangle(0.0, 0.0, screen_width(), screen_height(), cola(0, 0, 0, 0.25));
         // center cancel
-        draw_circle(rad.cx, rad.cy, 24.0, col(0x04, 0x11, 0x0b));
-        draw_circle_lines(rad.cx, rad.cy, 24.0, 2.0, col(0x2b, 0x6b, 0x45));
-        draw_text("X", rad.cx - 6.0, rad.cy + 6.0, 18.0, col(0x7d, 0xff, 0xb0));
+        draw_circle(rad.cx, rad.cy, cr, col(0x04, 0x11, 0x0b));
+        draw_circle_lines(rad.cx, rad.cy, cr, 2.0, col(0x2b, 0x6b, 0x45));
+        let dx = measure_text("X", None, icon_fs as u16, 1.0);
+        draw_text("X", rad.cx - dx.width / 2.0, rad.cy + dx.height / 2.0, icon_fs, col(0x7d, 0xff, 0xb0));
         for o in &rad.opts {
             let fill = if o.afford { cola(6, 22, 13, 0.96) } else { cola(14, 10, 10, 0.92) };
-            draw_circle(o.x, o.y, 31.0, fill);
-            draw_circle_lines(o.x, o.y, 31.0, 2.0, if o.afford { o.c } else { col(0x5a, 0x4a, 0x4a) });
+            draw_circle(o.x, o.y, r, fill);
+            draw_circle_lines(o.x, o.y, r, 2.0, if o.afford { o.c } else { col(0x5a, 0x4a, 0x4a) });
             let tc = if o.afford { o.c } else { col(0x5a, 0x4a, 0x4a) };
-            let di = measure_text(&o.icon, None, 20, 1.0);
-            draw_text(&o.icon, o.x - di.width / 2.0, o.y - 6.0, 20.0, tc);
-            let dl = measure_text(&o.label, None, 10, 1.0);
-            draw_text(&o.label, o.x - dl.width / 2.0, o.y + 8.0, 10.0, tc);
+            let di = measure_text(&o.icon, None, icon_fs as u16, 1.0);
+            draw_text(&o.icon, o.x - di.width / 2.0, o.y - r * 0.18, icon_fs, tc);
+            let dl = measure_text(&o.label, None, 11, 1.0);
+            draw_text(&o.label, o.x - dl.width / 2.0, o.y + r * 0.28, 11.0, tc);
             let dc = measure_text(&o.cost, None, 11, 1.0);
-            draw_text(&o.cost, o.x - dc.width / 2.0, o.y + 20.0, 11.0, col(0xff, 0xd8, 0x4d));
+            draw_text(&o.cost, o.x - dc.width / 2.0, o.y + r * 0.62, 11.0, col(0xff, 0xd8, 0x4d));
         }
     }
 
@@ -3364,6 +3438,34 @@ impl App {
                 let dr = measure_text(&rw, None, 16, 1.0);
                 draw_text(&rw, w / 2.0 - dr.width / 2.0, h * 0.52, 16.0, col(0xff, 0xd8, 0x4d));
             }
+        }
+        let compact = self.compact();
+        if compact {
+            // stack buttons vertically (full width) so they fit a phone
+            let bw = (w - 48.0).min(320.0);
+            let bx = w / 2.0 - bw / 2.0;
+            let bh = 52.0;
+            let gap = 12.0;
+            let mut by = h * 0.58;
+            if win {
+                let nl = if last { self.tr("SECTORS", "SECTORES") } else { self.tr("NEXT SECTOR", "SIG. SECTOR") };
+                if self.button(taps, bx, by, bw, bh, &format!("{} >", nl), 15.0, col(0x1f, 0x9c, 0x4d), col(0x03, 0x10, 0x07)) {
+                    self.next_level();
+                    return;
+                }
+                by += bh + gap;
+            }
+            if self.button(taps, bx, by, bw, bh, &format!("@ {}", self.tr("RETRY", "REINTENTAR")), 15.0, cola(4, 16, 10, 0.85), col(0x7d, 0xff, 0xb0)) {
+                let idx = self.game.as_ref().unwrap().idx;
+                self.result = None;
+                self.start_level(idx);
+                return;
+            }
+            by += bh + gap;
+            if self.button(taps, bx, by, bw, bh, &format!("# {}", self.tr("SECTORS", "SECTORES")), 15.0, cola(4, 16, 10, 0.85), col(0x7d, 0xff, 0xb0)) {
+                self.quit_to_select();
+            }
+            return;
         }
         let bw = 180.0;
         let total = if win { 3.0 } else { 2.0 };
@@ -3544,9 +3646,11 @@ async fn main() {
         app.draw_ui(&taps);
 
         if app.screen == Screen::Play && !overlay {
+            let top_strip = app.hud_top();
+            let bot_strip = screen_height() - app.hud_bottom();
             for &(tx, ty) in &taps {
-                // ignore taps in HUD strips (top 50px / bottom 70px) so buttons don't double-fire builds
-                if ty < 50.0 || ty > screen_height() - 70.0 {
+                // ignore taps in the HUD strips so buttons don't double-fire builds
+                if ty < top_strip || ty > bot_strip {
                     // still allow radial interactions which may be near edges
                     if app.radial.is_some() {
                         app.handle_tap(tx, ty);
