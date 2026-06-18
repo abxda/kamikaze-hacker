@@ -31,7 +31,11 @@ use std::collections::HashMap;
 fn window_conf() -> Conf {
     Conf {
         window_title: "Kamikaze Hacker".to_owned(),
-        high_dpi: true,
+        // high_dpi MUST stay false: with it on, the JS glue scales touch/mouse
+        // coords by devicePixelRatio while the reported screen size is not, so on
+        // phones (DPR 2-3) every tap lands far outside the play area. Off => both
+        // sides use the same CSS-pixel units and taps line up everywhere.
+        high_dpi: false,
         window_resizable: true,
         window_width: 1100,
         window_height: 620,
