@@ -721,6 +721,10 @@ struct App {
     flash: f32,     // full-screen flash intensity (juice)
     flash_c: Color, // flash color
     slowmo: f32,    // brief slow-motion timer (real seconds)
+    dbg_line: String, // on-screen touch debug
+    dbg_mx: f32,
+    dbg_my: f32,
+    dbg_mark: f32,
 }
 
 const GLYPHS: &[char] = &[
@@ -759,6 +763,10 @@ impl App {
             flash: 0.0,
             flash_c: WHITE,
             slowmo: 0.0,
+            dbg_line: String::new(),
+            dbg_mx: 0.0,
+            dbg_my: 0.0,
+            dbg_mark: 0.0,
         }
     }
 
@@ -3457,6 +3465,38 @@ async fn main() {
             }
         }
 
+        // ---- on-screen touch debug ----
+        {
+            let nt = active_touches.len();
+            let (tx, ty, ph) = if let Some(t) = active_touches.first() {
+                let ph = match t.phase {
+                    TouchPhase::Started => "START",
+                    TouchPhase::Moved => "MOVE",
+                    TouchPhase::Stationary => "STAY",
+                    TouchPhase::Ended => "END",
+                    TouchPhase::Cancelled => "CANCEL",
+                };
+                (t.position.x, t.position.y, ph)
+            } else {
+                (-1.0, -1.0, "-")
+            };
+            let mp = mouse_position();
+            app.dbg_line = format!(
+                "scr {:.0}x{:.0}  touches:{} {}  t:({:.0},{:.0})  taps:{}  ms:({:.0},{:.0}) dn:{}",
+                screen_width(), screen_height(), nt, ph, tx, ty, taps.len(),
+                mp.0, mp.1, is_mouse_button_down(MouseButton::Left)
+            );
+            if nt > 0 {
+                app.dbg_mx = tx;
+                app.dbg_my = ty;
+                app.dbg_mark = 1.0;
+            } else if is_mouse_button_down(MouseButton::Left) {
+                app.dbg_mx = mp.0;
+                app.dbg_my = mp.1;
+                app.dbg_mark = 1.0;
+            }
+        }
+
         // ---- tower drag & drop ----
         let can_drag = app.screen == Screen::Play
             && app.result.is_none()
@@ -3553,6 +3593,22 @@ async fn main() {
         } else if app.radial.is_some() {
             for &(tx, ty) in &taps {
                 app.handle_tap(tx, ty);
+            }
+        }
+
+        // ---- touch debug overlay (always on top) ----
+        {
+            let sw = screen_width();
+            let fs = (sw * 0.02).clamp(16.0, 34.0);
+            draw_rectangle(0.0, 0.0, sw, fs + 12.0, cola(0, 0, 0, 0.78));
+            draw_text(&app.dbg_line, 6.0, fs, fs, col(0xff, 0xf2, 0x00));
+            if app.dbg_mark > 0.0 {
+                let r = 26.0 + (1.0 - app.dbg_mark) * 24.0;
+                draw_circle(app.dbg_mx, app.dbg_my, r, cola(255, 40, 40, 0.35 * app.dbg_mark));
+                draw_circle_lines(app.dbg_mx, app.dbg_my, r, 4.0, col(0xff, 0x20, 0x20));
+                draw_line(app.dbg_mx - r, app.dbg_my, app.dbg_mx + r, app.dbg_my, 2.0, col(0xff, 0xff, 0xff));
+                draw_line(app.dbg_mx, app.dbg_my - r, app.dbg_mx, app.dbg_my + r, 2.0, col(0xff, 0xff, 0xff));
+                app.dbg_mark -= get_frame_time() * 1.4;
             }
         }
 
